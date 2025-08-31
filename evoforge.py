@@ -202,6 +202,7 @@ class Forge:
         return self.best_fit
 
     def loop(self):
-        while self.running:
-            if not self.paused:
-                self.best_fit = self.evo.step()
+        while True:
+            if self.running:
+                if not self.paused:
+                    self.best_fit = self.evo.step()
