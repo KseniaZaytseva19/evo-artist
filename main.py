@@ -1,18 +1,23 @@
 import os
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PIL.ImageQt import ImageQt
 from PIL import Image
 from PyQt6.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout,
                              QListWidget, QFileDialog, QGroupBox, QMessageBox, QProgressBar)
 from PyQt6.QtGui import QIcon
+from evoforge import Forge, Algorithm
+import threading
 
 
 class ImageProcessor():
     def __init__(self):
-        self.image = None
+        self.image_orig = None
+        self.image_new = None
         self.filename = ''
         self.filepath = ''
+        self.forge = Forge(algorithm=Algorithm.MOSAIC)
+        self.thread = None
 
     def open(self, filename):
         self.filepath = os.path.join(workdir_path, filename)
@@ -26,9 +31,9 @@ class ImageProcessor():
             popup.exec()
             return
 
-        self.image = image
+        self.image_orig = image
 
-        if self.image.height != self.image.width:
+        if self.image_orig.height != self.image_orig.width:
             popup = QMessageBox()
             popup.setWindowTitle('')
             crop_button = popup.addButton('Crop', QMessageBox.ButtonRole.YesRole)
@@ -38,37 +43,51 @@ class ImageProcessor():
             popup.exec()
             clicked = popup.clickedButton()
             if clicked == crop_button:
-                if self.image.width > self.image.height:
-                    x1, y1 = (self.image.width - self.image.height) // 2, 0
-                    x2, y2 = x1 + self.image.height, self.image.height
-                    self.image = self.image.crop((x1, y1, x2, y2))
+                if self.image_orig.width > self.image_orig.height:
+                    x1, y1 = (self.image_orig.width - self.image_orig.height) // 2, 0
+                    x2, y2 = x1 + self.image_orig.height, self.image_orig.height
+                    self.image_orig = self.image_orig.crop((x1, y1, x2, y2))
                 else:
-                    x1, y1 = 0, (self.image.height - self.image.width) // 2
-                    x2, y2 = self.image.width, y1 + self.image.width
-                    self.image = self.image.crop((x1, y1, x2, y2))
+                    x1, y1 = 0, (self.image_orig.height - self.image_orig.width) // 2
+                    x2, y2 = self.image_orig.width, y1 + self.image_orig.width
+                    self.image_orig = self.image_orig.crop((x1, y1, x2, y2))
 
             elif clicked == resize_button:
-                if self.image.width < self.image.height:
-                    self.image = self.image.resize((self.image.width, self.image.width))
-                elif self.image.width > self.image.height:
-                    self.image = self.image.resize((self.image.height, self.image.height))
+                if self.image_orig.width < self.image_orig.height:
+                    self.image_orig = self.image_orig.resize((self.image_orig.width, self.image_orig.width))
+                elif self.image_orig.width > self.image_orig.height:
+                    self.image_orig = self.image_orig.resize((self.image_orig.height, self.image_orig.height))
 
             else:
                 return
+        self.forge.open_image(self.image_orig.resize((512, 512)))
+        self.forge.reset_algorithm()
+        self.thread = threading.Thread(target=self.forge.loop, daemon=True)
+        self.thread.start()
 
     def show_image(self):
-        q_image = ImageQt(self.image)
+        q_image = ImageQt(self.image_orig)
         pixmap = QPixmap.fromImage(q_image)
         height, width = pic_orig.height(), pic_orig.width()
         pixmap = pixmap.scaled(width, height, Qt.AspectRatioMode.KeepAspectRatio)
         pic_orig.setPixmap(pixmap)
 
+    def show_result(self, image):
+        self.image_new = image
+        q_image = ImageQt(self.image_new)
+        pixmap = QPixmap.fromImage(q_image)
+        height, width = pic_new.height(), pic_new.width()
+        pixmap = pixmap.scaled(width, height, Qt.AspectRatioMode.KeepAspectRatio)
+        pic_new.setPixmap(pixmap)
 
+condition = 0
 workdir_path = ''
 app = QApplication([])
 win = QWidget()
 win.setFixedSize(1400, 600)
 win.setWindowTitle('Editor')
+timer = QTimer()
+
 
 group_funct = QGroupBox()
 group_funct.setFixedWidth(200)
@@ -103,18 +122,18 @@ save_button.setFixedSize(150, 50)
 
 switching_group = QGroupBox()
 switching_group.setFixedSize(400, 75)
-but_1 = QPushButton()
-but_1.setIcon(QIcon('images/play.png'))
-but_1.setFixedSize(100, 50)
-but_2 = QPushButton()
-but_2.setIcon(QIcon('images/pause.png'))
-but_2.setFixedSize(100, 50)
+play_button = QPushButton()
+play_button.setIcon(QIcon('images/play.png'))
+play_button.setFixedSize(100, 50)
+pause_button = QPushButton()
+pause_button.setIcon(QIcon('images/pause.png'))
+pause_button.setFixedSize(100, 50)
 but_3 = QPushButton()
 but_3.setIcon(QIcon('images/stop.png'))
 but_3.setFixedSize(100, 50)
 layout_2_2_1 = QHBoxLayout()
-layout_2_2_1.addWidget(but_1)
-layout_2_2_1.addWidget(but_2)
+layout_2_2_1.addWidget(play_button)
+layout_2_2_1.addWidget(pause_button)
 layout_2_2_1.addWidget(but_3)
 switching_group.setLayout(layout_2_2_1)
 layout2_2.addWidget(open_button, alignment=Qt.AlignmentFlag.AlignRight)
@@ -164,8 +183,45 @@ def show():
     impr.show_image()
 
 
+def pause():
+    global condition
+    if condition == 1:
+        impr.forge.pause()
+        condition = 2
+    else:
+        return
+
+
+def play():
+    global condition
+    if condition == 0:
+        impr.forge.run()
+        condition = 1
+    elif condition == 2:
+        impr.forge.unpause()
+        condition = 1
+    else:
+        return
+
+def save():
+    print(impr.forge.get_best_fit())
+
+def update_image():
+    if condition == 1:
+        image = impr.forge.get_best()
+        if image:
+            impr.show_result(image)
+
+            fitness = 'fitness: ' +  str(round(impr.forge.get_best_fit(), 2))
+            fitness_label.setText(fitness)
+
+
 open_button.clicked.connect(open_picture)
 pictures_list.itemClicked.connect(show)
-
+play_button.clicked.connect(play)
+pause_button.clicked.connect(pause)
+save_button.clicked.connect(save)
+timer.timeout.connect(update_image)
+timer.start(1000)
 win.show()
 app.exec()

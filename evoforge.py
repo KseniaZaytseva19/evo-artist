@@ -127,7 +127,7 @@ class MosaicEvolution:
         fitness = EvoTools.evaluate(self.population, self.pooled_image, EvoTools.mae_fitness)
 
         elite_indices = np.argsort(fitness)[:int(self.population_size * self.elite_proportion)]
-        print('Generation {}'.format(self.generation), 'with fitness', fitness[elite_indices[0]])
+        # print('Generation {}'.format(self.generation), 'with fitness', fitness[elite_indices[0]])
         new_population = [self.population[i].copy() for i in elite_indices]
 
         while len(new_population) < self.population_size:
@@ -200,6 +200,11 @@ class Forge:
 
     def get_best_fit(self):
         return self.best_fit
+
+    def get_best(self):
+        grid = self.evo.select_best()
+        image = np.kron(grid, np.ones((8, 8, 1), dtype=np.uint8))
+        return Image.fromarray(image)
 
     def loop(self):
         while True:
